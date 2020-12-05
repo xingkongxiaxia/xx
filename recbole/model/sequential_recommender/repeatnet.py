@@ -371,6 +371,7 @@ def build_map(b_map, device,max=None):
 
     batch_size * seq_len ==>> batch_size * seq_len * n_item
 
+
     use in RepeatNet:
     [3,4,5] matmul [0,0,1,0,0,0]
                    [0,0,0,1,0,0] ==>>>   [0,0,3,4,5,0]  it works in the RepeatNet when project the seq item into all items
