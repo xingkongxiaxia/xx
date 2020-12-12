@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-# @Time    : 2020/11/20 22:33
-# @Author  : Shao Weiqi
-# @Email   : shaoweiqi@ruc.edu.cn
+# @Time     : 2020/11/20 22:33
+# @Author   : Shao Weiqi
+# @Reviewer : Lin Kun
+# @Email    : shaoweiqi@ruc.edu.cn
 
 r"""
 SHAN
@@ -26,7 +27,7 @@ class SHAN(SequentialRecommender):
     first get the long term purpose and then fuse the long-term with recent items to get long-short term purpose
 
     """
-#ddgkkhfakjfhjkhfhkfhkfkhf
+
     def __init__(self,config,dataset):
 
         super(SHAN, self).__init__(config,dataset)
@@ -38,6 +39,7 @@ class SHAN(SequentialRecommender):
         # load the parameter information
         self.embedding_size=config["embedding_size"]
         self.short_item_length=config["short_item_length"] # the length of the short session items
+        assert self.short_item_length<=self.max_seq_length,"short_item_length can't longer than the max_seq_length"
         self.reg_weight=config["reg_weight"]
 
         # define layers and loss
@@ -72,12 +74,20 @@ class SHAN(SequentialRecommender):
         return loss_1+loss_2
 
 
-    def inverse_seq_item(self,seq_item):
-
-        seq_item=seq_item.numpy()
-        for idx,x in enumerate(seq_item):
-            seq_item[idx]=x[::-1]
-        seq_item=torch.LongTensor(seq_item).to(self.device)
+    def inverse_seq_item(self, seq_item, seq_item_len):
+        """
+        seq_item: batch_size * seq_len
+        seq_item_len: batch_size
+        """
+        seq_item = seq_item.cpu().numpy()
+        seq_item_len = seq_item_len.cpu().numpy()
+        new_seq_item = []
+        for items, length in zip(seq_item, seq_item_len):
+            item = list(items[:length])
+            zeros = list(items[length:])
+            seqs = zeros + item
+            new_seq_item.append(seqs)
+        seq_item = torch.tensor(new_seq_item, dtype=torch.long, device=self.device)
 
         return seq_item
 
@@ -92,9 +102,9 @@ class SHAN(SequentialRecommender):
             print(module.data)
 
 
-    def forward(self,seq_item,user):
+    def forward(self,seq_item,user,seq_item_len):
 
-        seq_item=self.inverse_seq_item(seq_item)
+        seq_item=self.inverse_seq_item(seq_item,seq_item_len)
 
         seq_item_embedding=self.item_embedding(seq_item)
         user_embedding=self.user_embedding(user)
@@ -122,9 +132,10 @@ class SHAN(SequentialRecommender):
     def calculate_loss(self, interaction):
 
         seq_item=interaction[self.ITEM_SEQ]
+        seq_item_len=interaction[self.ITEM_SEQ_LEN]
         user=interaction[self.USER_ID]
         user_embedding=self.user_embedding(user)
-        seq_output=self.forward(seq_item,user)
+        seq_output=self.forward(seq_item,user,seq_item_len)
         pos_items=interaction[self.POS_ITEM_ID]
         pos_items_emb = self.item_embedding(pos_items)
         if self.loss_type == 'BPR':
@@ -145,8 +156,9 @@ class SHAN(SequentialRecommender):
 
         item_seq = interaction[self.ITEM_SEQ]
         test_item = interaction[self.ITEM_ID]
+        seq_item_len=interaction[self.ITEM_SEQ_LEN]
         user = interaction[self.USER_ID]
-        seq_output = self.forward(item_seq, user)
+        seq_output = self.forward(item_seq, user,seq_item_len)
         test_item_emb = self.item_embedding(test_item)
         scores = torch.mul(seq_output, test_item_emb).sum(dim=1)
         return scores
@@ -154,8 +166,9 @@ class SHAN(SequentialRecommender):
     def full_sort_predict(self, interaction):
 
         item_seq = interaction[self.ITEM_SEQ]
+        seq_item_len = interaction[self.ITEM_SEQ_LEN]
         user = interaction[self.USER_ID]
-        seq_output = self.forward(item_seq, user)
+        seq_output = self.forward(item_seq, user,seq_item_len)
         test_items_emb = self.item_embedding.weight
         scores = torch.matmul(seq_output, test_items_emb.transpose(0, 1))
         return scores
